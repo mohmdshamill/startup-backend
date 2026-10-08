@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  FOUNDER
+  DEVELOPER
+  DESIGNER
+  INVESTOR
+  MENTOR
+  ADMIN
+}
+
+enum AvailabilityStatus {
+  AVAILABLE_FULLTIME
+  AVAILABLE_PARTTIME
+  CONTRACT
+  OPEN_TO_OFFERS
+  NOT_AVAILABLE
+}
+
+enum WorkPreference {
+  REMOTE
+  HYBRID
+  ONSITE
+  ANY
+}
+
+enum ApplicationStatus {
+  PENDING
+  REVIEWING
+  SHORTLISTED
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+model User {
+  id                       String                @id @default(uuid())
+  email                    String                @unique
+  name                     String
+  password                 String
+  phone                    String?
+  role                     Role                  @default(DEVELOPER)
+  bio                      String?
+  skills                   String[]              @default([])
+  interests                String[]              @default([])
+  avatar                   String?
+  location                 String?
+  website                  String?
+  githubUrl                String?
+  linkedinUrl              String?
+  resumeUrl                String?
+  resumeFileName           String?
+  resumeUploadedAt         DateTime?
+  availabilityStatus       AvailabilityStatus    @default(AVAILABLE_FULLTIME)
+  availabilityHoursPerWeek Int?                  @default(40)
+  workPreference           WorkPreference        @default(REMOTE)
+  noticePeriod             String?
+  isActive                 Boolean               @default(true)
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
+  refreshTokens            RefreshToken[]
+  passwordResetTokens      PasswordResetToken[]
+  education                Education[]
+  experience               Experience[]
+  portfolioItems           PortfolioItem[]
+  startupIdeas             StartupIdea[]
+  teamApplications         TeamApplication[]
+  notifications            Notification[]
+  startupNotes             StartupNote[]
+  startupAnnouncements     StartupAnnouncement[]
+  startupFiles             StartupFile[]
+  createdTasks             Task[]                @relation("TaskCreator")
+  taskAssignments          TaskAssignee[]        @relation("TaskAssignee")
+}
+
+model Education {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution  String
+  degree       String
+  fieldOfStudy String?
+  startDate    DateTime
+  endDate      DateTime?
+  isCurrent    Boolean   @default(false)
+  description  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model Experience {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  company     String
+  location    String?
+  startDate   DateTime
+  endDate     DateTime?
+  isCurrent   Boolean   @default(false)
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model PortfolioItem {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  projectUrl  String?
+  githubUrl   String?
+  imageUrl    String?
+  tags        String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+enum StartupStage {
+  IDEATION
+  PROTOTYPE
+  MVP
+  EARLY_TRACTION
+  SCALING
+}
+
+model StartupIdea {
+  id                   String                @id @default(uuid())
+  founderId            String
+  founder              User                  @relation(fields: [founderId], references: [id], onDelete: Cascade)
+  title                String
+  tagline              String
+  description          String                @db.Text
+  category             String
+  stage                StartupStage          @default(IDEATION)
+  requiredSkills       String[]              @default([])
+  targetMarket         String?
+  websiteUrl           String?
+  pitchDeckUrl         String?
+  teamSize             Int?                  @default(1)
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  teamApplications     TeamApplication[]
+  startupNotes         StartupNote[]
+  startupAnnouncements StartupAnnouncement[]
+  startupFiles         StartupFile[]
+  tasks                Task[]
+
+  @@index([founderId])
+  @@index([category])
+  @@index([stage])
+}
+
+model TeamApplication {
+  id                       String            @id @default(uuid())
+  startupIdeaId            String
+  startupIdea              StartupIdea       @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  candidateId              String
+  candidate                User              @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  roleApplied              String
+  pitchMessage             String            @db.Text
+  skills                   String[]          @default([])
+  availabilityHoursPerWeek Int?              @default(20)
+  portfolioUrl             String?
+  resumeUrl                String?
+  status                   ApplicationStatus @default(PENDING)
+  founderFeedback          String?           @db.Text
+  reviewedAt               DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  @@unique([startupIdeaId, candidateId])
+  @@index([candidateId])
+  @@index([startupIdeaId])
+  @@index([status])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // APPLICATION_RECEIVED, STATUS_UPDATED, APPLICATION_ACCEPTED, APPLICATION_SHORTLISTED, APPLICATION_REJECTED, APPLICATION_WITHDRAWN, SYSTEM, NEW_ANNOUNCEMENT
+  title     String
+  message   String   @db.Text
+  link      String?  @default("/recruitment")
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model StartupNote {
+  id            String      @id @default(uuid())
+  startupIdeaId String
+  startupIdea   StartupIdea @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  authorId      String
+  author        User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title         String
+  content       String      @db.Text
+  color         String?     @default("blue") // blue, emerald, amber, purple, rose
+  isPinned      Boolean     @default(false)
+  tags          String[]    @default([])
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([startupIdeaId])
+  @@index([authorId])
+}
+
+model StartupAnnouncement {
+  id            String      @id @default(uuid())
+  startupIdeaId String
+  startupIdea   StartupIdea @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  authorId      String
+  author        User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  title         String
+  content       String      @db.Text
+  priority      String      @default("NORMAL") // NORMAL, IMPORTANT, URGENT
+  isPinned      Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([startupIdeaId])
+  @@index([authorId])
+}
+
+model StartupFile {
+  id            String      @id @default(uuid())
+  startupIdeaId String
+  startupIdea   StartupIdea @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  uploaderId    String
+  uploader      User        @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileUrl       String
+  fileSize      String?
+  fileType      String?
+  category      String?     @default("GENERAL") // PITCH_DECK, DESIGN, CODE, DOCUMENT, GENERAL
+  description   String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([startupIdeaId])
+  @@index([uploaderId])
+}
+
+// ─── Task Management ────────────────────────────────────────────────────────
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+model Task {
+  id            String         @id @default(uuid())
+  startupIdeaId String
+  startupIdea   StartupIdea    @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  creatorId     String
+  creator       User           @relation("TaskCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?        @db.Text
+  status        TaskStatus     @default(PENDING)
+  priority      TaskPriority   @default(MEDIUM)
+  deadline      DateTime?
+  progress      Int            @default(0) // 0-100
+  tags          String[]       @default([])
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  assignees     TaskAssignee[]
+
+  @@index([startupIdeaId])
+  @@index([creatorId])
+  @@index([status])
+  @@index([deadline])
+}
+
+model TaskAssignee {
+  id         String   @id @default(uuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User     @relation("TaskAssignee", fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+}

@@ -7,6 +7,11 @@ import {
   updateApplicationStatus,
   withdrawApplication,
   getApplicationById,
+  applyAsInvestor,
+  getMyInvestorApplications,
+  withdrawInvestorApplication,
+  getFounderInvestorApplications,
+  updateInvestorApplicationStatus,
 } from '../controllers/applicationController'
 import { authenticate } from '../middleware/authMiddleware'
 
@@ -19,6 +24,13 @@ router.use(authenticate)
 router.post('/', applyToStartup)
 router.get('/my-applications', getMyApplications)
 router.patch('/:id/withdraw', withdrawApplication)
+
+// Investor routes (must stay above '/:id')
+router.post('/investor', applyAsInvestor)
+router.get('/investor/my-applications', getMyInvestorApplications)
+router.patch('/investor/:id/withdraw', withdrawInvestorApplication)
+router.get('/investor/founder/all', getFounderInvestorApplications)
+router.patch('/investor/:id/status', updateInvestorApplicationStatus)
 
 // Founder routes
 router.get('/founder/all', getFounderAllApplications)

@@ -618,3 +618,229 @@ export const getApplicationById = async (req: AuthRequest, res: Response) => {
     return res.status(500).json({ error: err.message || 'Internal server error' })
   }
 }
+
+/**
+ * 8. Investor applies to invest in / join a startup
+ * POST /api/applications/investor
+ */
+export const applyAsInvestor = async (req: AuthRequest, res: Response) => {
+  try {
+    const investorId = req.user?.id
+    if (!investorId) {
+      return res.status(401).json({ error: 'Unauthorized. Please sign in.' })
+    }
+    if (req.user?.role !== Role.INVESTOR) {
+      return res.status(403).json({ error: 'Only users with the INVESTOR role can submit investor applications.' })
+    }
+
+    const { startupIdeaId, pitchMessage, investmentAmount, currency } = req.body
+    const amount = Number(investmentAmount)
+
+    if (!startupIdeaId || !pitchMessage || !String(pitchMessage).trim()) {
+      return res.status(400).json({ error: 'startupIdeaId and pitchMessage (why you want to join) are required.' })
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ error: 'Investing amount must be a number greater than 0.' })
+    }
+
+    const startupIdea = await prisma.startupIdea.findUnique({ where: { id: startupIdeaId } })
+    if (!startupIdea) {
+      return res.status(404).json({ error: 'Startup idea not found.' })
+    }
+    if (!startupIdea.isActive) {
+      return res.status(400).json({ error: 'This startup is currently not accepting applications.' })
+    }
+    if (startupIdea.founderId === investorId) {
+      return res.status(400).json({ error: 'You cannot apply to your own startup idea.' })
+    }
+
+    const include = {
+      startupIdea: { select: { id: true, title: true, category: true, stage: true } },
+    }
+    const data = {
+      pitchMessage: String(pitchMessage).trim(),
+      investmentAmount: amount,
+      currency: 'INR',
+    }
+
+    // Block only if an earlier application is still open; after accepted / rejected / withdrawn the investor may apply again
+    const openApplication = await prisma.investorApplication.findFirst({
+      where: {
+        startupIdeaId,
+        investorId,
+        status: { in: [ApplicationStatus.PENDING, ApplicationStatus.REVIEWING, ApplicationStatus.SHORTLISTED] },
+      },
+    })
+    if (openApplication) {
+      return res.status(400).json({
+        error: `You already have an application under review for this startup (status: ${openApplication.status}). Please wait for the founder's decision.`,
+        application: openApplication,
+      })
+    }
+
+    const reapplied = (await prisma.investorApplication.count({ where: { startupIdeaId, investorId } })) > 0
+    const application = await prisma.investorApplication.create({
+      data: { startupIdeaId, investorId, ...data },
+      include,
+    })
+
+    await prisma.notification.create({
+      data: {
+        userId: startupIdea.founderId,
+        type: 'INVESTOR_APPLICATION_RECEIVED',
+        title: `New Investor Interest: ${startupIdea.title}`,
+        message: `${req.user?.name || 'An investor'} ${reapplied ? 're-applied' : 'applied'} to invest ${data.currency} ${amount.toLocaleString()} in "${startupIdea.title}".`,
+        link: '/recruitment',
+      },
+    }).catch((e) => console.error('Failed to create founder notification:', e))
+
+    return res.status(reapplied ? 200 : 201).json({
+      message: 'Investor application submitted successfully.',
+      application,
+    })
+  } catch (err: any) {
+    console.error('Error applying as investor:', err)
+    return res.status(500).json({ error: err.message || 'Internal server error' })
+  }
+}
+
+/**
+ * 9. Investor views their own investor applications
+ * GET /api/applications/investor/my-applications
+ */
+export const getMyInvestorApplications = async (req: AuthRequest, res: Response) => {
+  try {
+    const investorId = req.user?.id
+    if (!investorId) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+    const applications = await prisma.investorApplication.findMany({
+      where: { investorId },
+      include: { startupIdea: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    return res.status(200).json({ count: applications.length, applications })
+  } catch (err: any) {
+    console.error('Error fetching investor applications:', err)
+    return res.status(500).json({ error: err.message || 'Internal server error' })
+  }
+}
+
+/**
+ * 10. Investor withdraws their investor application
+ * PATCH /api/applications/investor/:id/withdraw
+ */
+export const withdrawInvestorApplication = async (req: AuthRequest, res: Response) => {
+  try {
+    const investorId = req.user?.id
+    if (!investorId) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+    const application = await prisma.investorApplication.findUnique({
+      where: { id: req.params.id },
+      include: { startupIdea: true },
+    })
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' })
+    }
+    if (application.investorId !== investorId) {
+      return res.status(403).json({ error: 'Forbidden: You can only withdraw your own applications.' })
+    }
+    if (application.status === ApplicationStatus.ACCEPTED) {
+      return res.status(400).json({ error: 'Cannot withdraw an already accepted offer directly. Please contact the startup founder.' })
+    }
+    const updated = await prisma.investorApplication.update({
+      where: { id: application.id },
+      data: { status: ApplicationStatus.WITHDRAWN },
+    })
+    await prisma.notification.create({
+      data: {
+        userId: application.startupIdea.founderId,
+        type: 'APPLICATION_WITHDRAWN',
+        title: 'Investor Application Withdrawn',
+        message: `${req.user?.name || 'An investor'} withdrew their investment interest in "${application.startupIdea.title}".`,
+        link: '/recruitment',
+      },
+    }).catch((e) => console.error('Failed to create founder notification:', e))
+    return res.status(200).json({ message: 'Application withdrawn successfully.', application: updated })
+  } catch (err: any) {
+    console.error('Error withdrawing investor application:', err)
+    return res.status(500).json({ error: err.message || 'Internal server error' })
+  }
+}
+
+/**
+ * 11. Founder views investor applications across all their startups
+ * GET /api/applications/investor/founder/all
+ */
+export const getFounderInvestorApplications = async (req: AuthRequest, res: Response) => {
+  try {
+    const founderId = req.user?.id
+    if (!founderId) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+    const where = req.user?.role === Role.ADMIN ? {} : { startupIdea: { founderId } }
+    const applications = await prisma.investorApplication.findMany({
+      where,
+      include: {
+        startupIdea: { select: { id: true, title: true, category: true, stage: true } },
+        investor: {
+          select: { id: true, name: true, email: true, phone: true, avatar: true, bio: true, location: true, website: true, linkedinUrl: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    return res.status(200).json({ count: applications.length, applications })
+  } catch (err: any) {
+    console.error('Error fetching founder investor applications:', err)
+    return res.status(500).json({ error: err.message || 'Internal server error' })
+  }
+}
+
+/**
+ * 12. Founder updates an investor application status
+ * PATCH /api/applications/investor/:id/status
+ */
+export const updateInvestorApplicationStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.id
+    const { status, founderFeedback } = req.body
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized.' })
+    }
+    if (!status || !Object.values(ApplicationStatus).includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${Object.values(ApplicationStatus).join(', ')}` })
+    }
+    const application = await prisma.investorApplication.findUnique({
+      where: { id: req.params.id },
+      include: { startupIdea: true },
+    })
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' })
+    }
+    if (application.startupIdea.founderId !== userId && req.user?.role !== Role.ADMIN) {
+      return res.status(403).json({ error: 'Forbidden: You do not have permission to manage this application.' })
+    }
+    const updated = await prisma.investorApplication.update({
+      where: { id: application.id },
+      data: {
+        status: status as ApplicationStatus,
+        founderFeedback: founderFeedback !== undefined ? founderFeedback : application.founderFeedback,
+        reviewedAt: new Date(),
+      },
+    })
+    await prisma.notification.create({
+      data: {
+        userId: application.investorId,
+        type: `STATUS_${status}`,
+        title: `Investment Application ${status}: ${application.startupIdea.title}`,
+        message: `The founder of "${application.startupIdea.title}" updated your investor application to ${status}.${founderFeedback ? ` Note: "${founderFeedback}"` : ''}`,
+        link: '/recruitment',
+      },
+    }).catch((e) => console.error('Failed to create investor notification:', e))
+    return res.status(200).json({ message: `Investor application updated to ${status}.`, application: updated })
+  } catch (err: any) {
+    console.error('Error updating investor application status:', err)
+    return res.status(500).json({ error: err.message || 'Internal server error' })
+  }
+}

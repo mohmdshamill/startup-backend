@@ -72,7 +72,10 @@ model User {
   portfolioItems           PortfolioItem[]
   startupIdeas             StartupIdea[]
   teamApplications         TeamApplication[]
-  notifications            Notification[]
+  investorFavorites        InvestorFavorite[]
+  reports                  Report[]
+  investorApplications     InvestorApplication[]
+  notifications           Notification[]
   startupNotes             StartupNote[]
   startupAnnouncements     StartupAnnouncement[]
   startupFiles             StartupFile[]
@@ -165,10 +168,13 @@ model StartupIdea {
   pitchDeckUrl         String?
   teamSize             Int?                  @default(1)
   isActive             Boolean               @default(true)
+  isVerified           Boolean               @default(false)
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
   teamApplications     TeamApplication[]
-  startupNotes         StartupNote[]
+  investorApplications InvestorApplication[]
+  investorFavorites    InvestorFavorite[]
+  startupNotes        StartupNote[]
   startupAnnouncements StartupAnnouncement[]
   startupFiles         StartupFile[]
   tasks                Task[]
@@ -198,6 +204,26 @@ model TeamApplication {
 
   @@unique([startupIdeaId, candidateId])
   @@index([candidateId])
+  @@index([startupIdeaId])
+  @@index([status])
+}
+
+model InvestorApplication {
+  id               String            @id @default(uuid())
+  startupIdeaId    String
+  startupIdea      StartupIdea       @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  investorId       String
+  investor         User              @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  pitchMessage     String            @db.Text
+  investmentAmount Float
+  currency         String            @default("INR")
+  status           ApplicationStatus @default(PENDING)
+  founderFeedback  String?           @db.Text
+  reviewedAt       DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([investorId])
   @@index([startupIdeaId])
   @@index([status])
 }
@@ -322,4 +348,32 @@ model TaskAssignee {
   @@unique([taskId, userId])
   @@index([taskId])
   @@index([userId])
+}
+
+model InvestorFavorite {
+  id            String      @id @default(uuid())
+  investorId    String
+  investor      User        @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  startupIdeaId String
+  startupIdea   StartupIdea @relation(fields: [startupIdeaId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@unique([investorId, startupIdeaId])
+  @@index([investorId])
+}
+
+model Report {
+  id         String   @id @default(uuid())
+  reporterId String
+  reporter   User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  targetType String   @default("STARTUP")
+  targetId   String?
+  reason     String
+  details    String?  @db.Text
+  status     String   @default("PENDING")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([status])
+  @@index([reporterId])
 }
